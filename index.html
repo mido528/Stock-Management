@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cafe Stock Management System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .modal, .modal-backdrop {
+            display: none;
+            transition: opacity 0.3s ease-in-out;
+            opacity: 0;
+        }
+        .modal.show, .modal-backdrop.show { display: block; opacity: 1; }
+        .sidebar-icon { transition: all 0.2s ease-in-out; }
+        .sidebar-icon:hover { transform: scale(1.1); }
+        .toast {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            transform: translateX(200%);
+            transition: transform 0.5s ease-in-out;
+            z-index: 100;
+        }
+        .toast.show { transform: translateX(0); }
+        .stock-level { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;}
+        .stock-level-ok { background-color: #22c55e; } /* green-500 */
+        .stock-level-low { background-color: #f59e0b; } /* amber-500 */
+        .stock-level-out { background-color: #ef4444; } /* red-500 */
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="login-screen" class="min-h-screen flex items-center justify-center bg-gray-900">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
+            <h1 class="text-3xl font-bold mb-2 text-gray-800 flex items-center justify-center gap-3"><i class="fas fa-coffee text-amber-700"></i>The Daily Grind</h1>
+            <p class="text-gray-500 mb-6">Enter your credentials to start the day.</p>
+            <form id="login-form">
+                <div class="mb-4 text-left">
+                    <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Barista ID</label>
+                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="barista">
+                </div>
+                <div class="mb-6 text-left">
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Secret Blend</label>
+                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="espresso">
+                </div>
+                <button type="submit" class="w-full bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-700 transition-colors duration-300 font-semibold">Clock In</button>
+                <p id="login-error" class="text-red-500 text-sm mt-4 hidden">Invalid credentials. Please try again.</p>
+            </form>
+        </div>
+    </div>
+
+    <div id="main-app" class="hidden">
+        <div class="flex h-screen">
+            <aside class="w-20 bg-gray-800 text-white flex flex-col items-center py-6 space-y-6">
+                <div class="text-2xl font-bold text-amber-400">CSM</div>
+                <nav id="sidebar-nav" class="flex flex-col items-center space-y-4">
+                    <button data-view="products-view" class="nav-btn p-3 rounded-lg bg-amber-600 sidebar-icon" title="Products"><i class="fas fa-box-open fa-lg"></i></button>
+                    <button data-view="suppliers-view" class="nav-btn p-3 rounded-lg hover:bg-gray-700 sidebar-icon" title="Suppliers"><i class="fas fa-truck-fast fa-lg"></i></button>
+                    <button data-view="stock-view" class="nav-btn p-3 rounded-lg hover:bg-gray-700 sidebar-icon" title="Stock"><i class="fas fa-warehouse fa-lg"></i></button>
+                    <button data-view="po-view" class="nav-btn p-3 rounded-lg hover:bg-gray-700 sidebar-icon" title="Purchase Orders"><i class="fas fa-file-invoice-dollar fa-lg"></i></button>
+                </nav>
+                <button id="logout-btn" class="mt-auto p-3 rounded-lg hover:bg-red-600 sidebar-icon" title="Logout"><i class="fas fa-sign-out-alt fa-lg"></i></button>
+            </aside>
+
+            <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+                <div id="products-view" class="view">
+                    <div class="flex justify-between items-center mb-6">
+                        <h1 class="text-3xl font-bold">Product Management</h1>
+                        <button onclick="App.openModal('product-modal', 'products')" class="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2"><i class="fas fa-plus"></i> Add Product</button>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-md"><div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead><tr class="border-b-2 border-gray-200"><th class="py-3 px-4 font-semibold">Name</th><th class="py-3 px-4 font-semibold">Price</th><th class="py-3 px-4 font-semibold">Quantity</th><th class="py-3 px-4 font-semibold text-right">Actions</th></tr></thead>
+                            <tbody id="product-table-body"></tbody>
+                        </table>
+                    </div></div>
+                </div>
+
+                <div id="suppliers-view" class="view hidden">
+                     <div class="flex justify-between items-center mb-6">
+                        <h1 class="text-3xl font-bold">Supplier Management</h1>
+                        <button onclick="App.openModal('supplier-modal', 'suppliers')" class="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2"><i class="fas fa-plus"></i> Add Supplier</button>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-md"><div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead><tr class="border-b-2 border-gray-200"><th class="py-3 px-4 font-semibold">Name</th><th class="py-3 px-4 font-semibold">Contact Info</th><th class="py-3 px-4 font-semibold">Category</th><th class="py-3 px-4 font-semibold text-right">Actions</th></tr></thead>
+                            <tbody id="supplier-table-body"></tbody>
+                        </table>
+                    </div></div>
+                </div>
+
+                <div id="stock-view" class="view hidden">
+                    <h1 class="text-3xl font-bold mb-6">Stock Management</h1>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                            <h2 class="text-xl font-semibold mb-4">Stock Actions</h2>
+                            <form id="stock-action-form" class="space-y-4">
+                                <div><label for="stock-product-select" class="block text-sm font-medium text-gray-700">Product</label><select id="stock-product-select" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-amber-500 focus:border-amber-500"></select></div>
+                                <div><label for="stock-quantity" class="block text-sm font-medium text-gray-700">Quantity</label><input type="number" id="stock-quantity" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-amber-500 focus:border-amber-500" required></div>
+                                <div class="flex gap-4"><button type="button" onclick="App.handleStockAction('receive')" class="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600">Receive Stock</button><button type="button" onclick="App.handleStockAction('sale')" class="flex-1 bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600">Record Sale</button></div>
+                            </form>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h2 class="text-xl font-semibold mb-4">Stock Report</h2><div class="overflow-x-auto max-h-96"><table class="w-full text-left"><thead><tr class="border-b-2 border-gray-200"><th class="py-2 px-3 font-semibold">Product</th><th class="py-2 px-3 font-semibold">Current Stock</th></tr></thead><tbody id="stock-report-body"></tbody></table></div></div>
+                    </div>
+                </div>
+                
+                <div id="po-view" class="view hidden">
+                    <h1 class="text-3xl font-bold mb-6">Purchase Orders</h1>
+                    <div class="grid md:grid-cols-2 gap-6">
+                         <div class="bg-white p-6 rounded-xl shadow-md">
+                            <h2 class="text-xl font-semibold mb-4">Generate Purchase Order</h2>
+                            <form id="po-form" class="space-y-4">
+                                <div><label for="po-product-select" class="block text-sm font-medium text-gray-700">Product</label><select id="po-product-select" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-amber-500 focus:border-amber-500"></select></div>
+                                <div><label for="po-quantity" class="block text-sm font-medium text-gray-700">Quantity to Order</label><input type="number" id="po-quantity" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-amber-500 focus:border-amber-500" required></div>
+                                <button type="submit" class="w-full bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700">Generate PO</button>
+                            </form>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md"><h2 class="text-xl font-semibold mb-4">Generated Orders</h2><div id="po-list" class="space-y-3 max-h-96 overflow-y-auto"></div></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="modal-backdrop" class="modal-backdrop fixed top-0 left-0 w-full h-full bg-black/50 z-40"></div>
+    <div id="product-modal" class="modal fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg z-50">
+        <h2 id="product-modal-title" class="text-2xl font-bold mb-6">Add New Product</h2>
+        <form id="product-form" onsubmit="App.handleSave(event, 'products')">
+            <input type="hidden" id="id" name="id">
+            <div class="mb-4"><label for="product-name" class="block text-sm font-medium text-gray-700">Product Name</label><input type="text" id="product-name" name="name" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="mb-4"><label for="product-price" class="block text-sm font-medium text-gray-700">Price</label><input type="number" id="product-price" name="price" step="0.01" min="0" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="mb-6"><label for="product-quantity" class="block text-sm font-medium text-gray-700">Quantity</label><input type="number" id="product-quantity" name="quantity" min="0" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="flex justify-end gap-4"><button type="button" onclick="App.closeModal('product-modal')" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400">Cancel</button><button type="submit" class="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700">Save Product</button></div>
+        </form>
+    </div>
+    <div id="supplier-modal" class="modal fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg z-50">
+        <h2 id="supplier-modal-title" class="text-2xl font-bold mb-6">Add New Supplier</h2>
+        <form id="supplier-form" onsubmit="App.handleSave(event, 'suppliers')">
+            <input type="hidden" id="id" name="id">
+            <div class="mb-4"><label for="supplier-name" class="block text-sm font-medium text-gray-700">Supplier Name</label><input type="text" id="supplier-name" name="name" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="mb-4"><label for="supplier-contact" class="block text-sm font-medium text-gray-700">Contact Info</label><input type="text" id="supplier-contact" name="contact" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="mb-6"><label for="supplier-category" class="block text-sm font-medium text-gray-700">Product Category</label><input type="text" id="supplier-category" name="category" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md" required></div>
+            <div class="flex justify-end gap-4"><button type="button" onclick="App.closeModal('supplier-modal')" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400">Cancel</button><button type="submit" class="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700">Save Supplier</button></div>
+        </form>
+    </div>
+    <div id="delete-confirm-modal" class="modal fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm text-center z-50">
+        <h2 class="text-xl font-bold mb-4">Are you sure?</h2>
+        <p id="delete-confirm-message" class="text-gray-600 mb-6"></p>
+        <div class="flex justify-center gap-4"><button type="button" onclick="App.closeModal('delete-confirm-modal')" class="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400">Cancel</button><button id="confirm-delete-btn" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700">Delete</button></div>
+    </div>
+    
+    <div id="toast-container"></div>
+    
+    <script>
+        const App = {
+            // --- CENTRAL CONFIGURATION ---
+            config: {
+                products: {
+                    key: 'products',
+                    modalId: 'product-modal',
+                    tableBodyId: 'product-table-body',
+                    // Function to render a single row for the product table
+                    renderRow: p => `
+                        <tr class="border-b border-gray-100 hover:bg-gray-50">
+                            <td class="py-3 px-4"><span class="stock-level ${p.quantity > 20 ? 'stock-level-ok' : p.quantity > 0 ? 'stock-level-low' : 'stock-level-out'}"></span>${p.name}</td>
+                            <td class="py-3 px-4">£${p.price.toFixed(2)}</td>
+                            <td class="py-3 px-4">${p.quantity}</td>
+                            <td class="py-3 px-4 text-right">
+                                <button onclick="App.openModal('product-modal', 'products', ${p.id})" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                <button onclick="App.confirmDelete('products', ${p.id})" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                            </td>
+                        </tr>`
+                },
+                suppliers: {
+                    key: 'suppliers',
+                    modalId: 'supplier-modal',
+                    tableBodyId: 'supplier-table-body',
+                    // Function to render a single row for the supplier table
+                    renderRow: s => `
+                        <tr class="border-b border-gray-100 hover:bg-gray-50">
+                            <td class="py-3 px-4">${s.name}</td>
+                            <td class="py-3 px-4">${s.contact}</td>
+                            <td class="py-3 px-4">${s.category}</td>
+                            <td class="py-3 px-4 text-right">
+                                <button onclick="App.openModal('supplier-modal', 'suppliers', ${s.id})" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                <button onclick="App.confirmDelete('suppliers', ${s.id})" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                            </td>
+                        </tr>`
+                }
+            },
+
+            // --- DATABASE ABSTRACTION ---
+            DB: {
+                get: (key) => JSON.parse(localStorage.getItem(key)) || [],
+                save: (key, data) => localStorage.setItem(key, JSON.stringify(data)),
+                getPurchaseOrders: () => JSON.parse(localStorage.getItem('purchaseOrders')) || [],
+                savePurchaseOrders: (orders) => localStorage.setItem('purchaseOrders', JSON.stringify(orders)),
+            },
+
+            // --- INITIALIZATION ---
+            init() {
+                // Set up default data if none exists
+                if (!localStorage.getItem('products')) this.DB.save('products', [{ id: 1, name: 'Espresso Beans', price: 15.50, quantity: 100 }, { id: 2, name: 'Milk (1L)', price: 1.20, quantity: 50 }, { id: 3, name: 'Croissants', price: 2.50, quantity: 18 }]);
+                if (!localStorage.getItem('suppliers')) this.DB.save('suppliers', [{ id: 1, name: 'Bean Masters', contact: 'sales@beanmasters.com', category: 'Coffee Beans' }, { id: 2, name: 'Dairy Direct', contact: 'orders@dairydirect.uk', category: 'Dairy' }]);
+                if (!localStorage.getItem('purchaseOrders')) this.DB.save('purchaseOrders', []);
+
+                // Event Listeners
+                document.getElementById('login-form').addEventListener('submit', this.handleLogin.bind(this));
+                document.getElementById('logout-btn').addEventListener('click', this.handleLogout.bind(this));
+                document.getElementById('po-form').addEventListener('submit', this.handlePOSave.bind(this));
+                document.getElementById('sidebar-nav').addEventListener('click', this.handleNavClick.bind(this));
+                
+                // Check session and render app if logged in
+                if(sessionStorage.getItem('loggedIn')) {
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('main-app').classList.remove('hidden');
+                    this.renderAll();
+                }
+            },
+
+            // --- RENDERING ---
+            renderAll() {
+                this.renderTable('products');
+                this.renderTable('suppliers');
+                this.renderStock();
+                this.renderPurchaseOrders();
+            },
+            
+            // Generic function to render any table based on the config
+            renderTable(entityKey) {
+                const entityConfig = this.config[entityKey];
+                const data = this.DB.get(entityConfig.key);
+                const tableBody = document.getElementById(entityConfig.tableBodyId);
+                tableBody.innerHTML = data.map(entityConfig.renderRow).join('');
+            },
+
+            renderStock() {
+                const products = this.DB.get('products');
+                const stockSelect = document.getElementById('stock-product-select');
+                const poSelect = document.getElementById('po-product-select');
+                const reportBody = document.getElementById('stock-report-body');
+
+                stockSelect.innerHTML = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                poSelect.innerHTML = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                reportBody.innerHTML = products.map(p => `<tr class="border-b border-gray-100"><td class="py-2 px-3">${p.name}</td><td class="py-2 px-3">${p.quantity}</td></tr>`).join('');
+            },
+
+            renderPurchaseOrders() {
+                const orders = this.DB.getPurchaseOrders();
+                const poList = document.getElementById('po-list');
+                if (orders.length === 0) {
+                    poList.innerHTML = `<p class="text-gray-500 text-center">No purchase orders generated yet.</p>`;
+                    return;
+                }
+                poList.innerHTML = orders.slice().reverse().map(o => `
+                    <div class="bg-gray-100 p-3 rounded-lg">
+                        <p class="font-semibold">${o.productName}</p>
+                        <p class="text-sm text-gray-600">Quantity: ${o.quantity} | Date: ${o.date}</p>
+                    </div>`).join('');
+            },
+
+            // --- EVENT HANDLERS & LOGIC ---
+            handleLogin(e) {
+                e.preventDefault();
+                if (e.target.username.value.toLowerCase() === 'barista' && e.target.password.value.toLowerCase() === 'espresso') {
+                    sessionStorage.setItem('loggedIn', 'true');
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('main-app').classList.remove('hidden');
+                    document.getElementById('login-error').classList.add('hidden');
+                    this.renderAll();
+                } else {
+                    document.getElementById('login-error').classList.remove('hidden');
+                }
+            },
+
+            handleLogout() {
+                sessionStorage.removeItem('loggedIn');
+                window.location.reload(); // Simple way to reset state
+            },
+            
+            // Generic save handler for both creating and editing
+            handleSave(e, entityKey) {
+                e.preventDefault();
+                const entityConfig = this.config[entityKey];
+                const form = e.target;
+                const formData = new FormData(form);
+                const item = Object.fromEntries(formData.entries());
+
+                // Coerce types
+                Object.keys(item).forEach(key => {
+                    if (key === 'price') item[key] = parseFloat(item[key]);
+                    if (key === 'quantity' || key === 'id') item[key] = parseInt(item[key] || 0);
+                });
+
+                let data = this.DB.get(entityConfig.key);
+                if (item.id) { // Editing existing
+                    data = data.map(d => d.id === item.id ? { ...d, ...item } : d);
+                } else { // Adding new
+                    item.id = data.length > 0 ? Math.max(...data.map(d => d.id)) + 1 : 1;
+                    data.push(item);
+                }
+                this.DB.save(entityConfig.key, data);
+                this.renderAll();
+                this.closeModal(entityConfig.modalId);
+                this.showToast(`${item.name} saved successfully!`);
+            },
+            
+            handleStockAction(action) {
+                const form = document.getElementById('stock-action-form');
+                const productId = parseInt(form['stock-product-select'].value);
+                const quantity = parseInt(form['stock-quantity'].value);
+
+                if (isNaN(quantity) || quantity <= 0) {
+                    this.showToast('Please enter a valid quantity.', 'error');
+                    return;
+                }
+
+                let products = this.DB.get('products');
+                const product = products.find(p => p.id === productId);
+
+                if (action === 'receive') {
+                    product.quantity += quantity;
+                    this.showToast(`Received ${quantity} of ${product.name}.`);
+                } else if (action === 'sale') {
+                    if (product.quantity < quantity) {
+                        this.showToast(`Not enough stock for ${product.name}. Only ${product.quantity} left.`, 'error');
+                        return;
+                    }
+                    product.quantity -= quantity;
+                    this.showToast(`Recorded sale of ${quantity} of ${product.name}.`);
+                }
+                
+                this.DB.save('products', products);
+                this.renderAll();
+                form.reset();
+            },
+
+            handlePOSave(e) {
+                e.preventDefault();
+                const productId = parseInt(e.target['po-product-select'].value);
+                const quantity = parseInt(e.target['po-quantity'].value);
+                const product = this.DB.get('products').find(p => p.id === productId);
+                
+                const newOrder = { productName: product.name, quantity, date: new Date().toLocaleDateString('en-GB') };
+                const orders = this.DB.getPurchaseOrders();
+                orders.push(newOrder);
+                this.DB.savePurchaseOrders(orders);
+                
+                this.renderPurchaseOrders();
+                e.target.reset();
+                this.showToast(`Purchase order for ${quantity} of ${product.name} generated.`);
+            },
+            
+            handleNavClick(e) {
+                const button = e.target.closest('.nav-btn');
+                if (!button) return;
+                
+                const viewId = button.dataset.view;
+                document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
+                document.getElementById(viewId).classList.remove('hidden');
+                
+                document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('bg-amber-600'));
+                button.classList.add('bg-amber-600');
+            },
+
+            // --- GENERIC CRUD HELPERS ---
+            confirmDelete(entityKey, itemId) {
+                const entityConfig = this.config[entityKey];
+                const item = this.DB.get(entityConfig.key).find(i => i.id === itemId);
+                if (!item) return;
+
+                document.getElementById('delete-confirm-message').textContent = `Do you really want to delete "${item.name}"? This action cannot be undone.`;
+                document.getElementById('confirm-delete-btn').onclick = () => this.deleteItem(entityKey, itemId);
+                this.openModal('delete-confirm-modal');
+            },
+
+            deleteItem(entityKey, itemId) {
+                const entityConfig = this.config[entityKey];
+                let data = this.DB.get(entityConfig.key);
+                const itemName = data.find(i => i.id === itemId).name;
+                data = data.filter(i => i.id !== itemId);
+                this.DB.save(entityConfig.key, data);
+                
+                this.renderAll();
+                this.closeModal('delete-confirm-modal');
+                this.showToast(`${itemName} has been deleted.`, 'error');
+            },
+
+            // --- UI UTILITIES ---
+            openModal(modalId, entityKey = null, itemId = null) {
+                const modal = document.getElementById(modalId);
+                const form = modal.querySelector('form');
+                
+                if (form) form.reset();
+
+                if (entityKey && itemId) { // Editing
+                    const entityConfig = this.config[entityKey];
+                    const item = this.DB.get(entityConfig.key).find(i => i.id === itemId);
+                    modal.querySelector('h2').textContent = `Edit ${entityKey.slice(0, -1)}`;
+                    Object.keys(item).forEach(key => {
+                        if (form[key]) form[key].value = item[key];
+                    });
+                } else if(entityKey) { // Adding new
+                     modal.querySelector('h2').textContent = `Add New ${entityKey.slice(0, -1)}`;
+                }
+                
+                document.getElementById('modal-backdrop').classList.add('show');
+                modal.classList.add('show');
+            },
+
+            closeModal(modalId) {
+                document.getElementById(modalId).classList.remove('show');
+                document.getElementById('modal-backdrop').classList.remove('show');
+            },
+            
+            showToast(message, type = 'success') {
+                const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' };
+                const toast = document.createElement('div');
+                toast.className = `toast text-white px-6 py-3 rounded-lg shadow-lg ${colors[type] || colors.success}`;
+                toast.textContent = message;
+                
+                document.getElementById('toast-container').appendChild(toast);
+                
+                setTimeout(() => toast.classList.add('show'), 10); // Trigger transition
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    toast.addEventListener('transitionend', () => toast.remove());
+                }, 4000);
+            },
+        };
+
+        document.addEventListener('DOMContentLoaded', () => App.init());
+    </script>
+</body>
+</html>
