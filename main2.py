@@ -2,399 +2,357 @@ import csv
 import os
 import datetime
 import sys
+from enum import Enum
+from abc import ABC, abstractmethod
 
-# --- Class Definitions ---
-# I have recreated the necessary classes that were previously in separate modules.
+# ==============================================================================
+# DESIGN PATTERN: Singleton
+# Manages global configuration settings like file paths and credentials.
+# Ensures that there is only one instance of the configuration object.
+# ==============================================================================
+class Config:
+    _instance = None
 
-class Utils:
-    """A utility class for helper functions like getting the current time."""
-    def format_date(self):
-        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Config, cls).__new__(cls)
+            # Initialize configuration values here
+            cls._instance.stock_file = 'stock.csv'
+            cls._instance.supplier_file = 'suppliers.csv'
+            cls._instance.credentials = {"admin": "test"}
+        return cls._instance
 
-class ProductManager:
-    """Handles all operations related to products in a CSV file."""
+    def get_stock_file_path(self):
+        return self.stock_file
+
+    def get_supplier_file_path(self):
+        return self.supplier_file
+
+    def get_credentials(self):
+        return self.credentials
+
+# ==============================================================================
+# DATA CLASSES: Define the core objects of our system.
+# ==============================================================================
+class Product:
+    """A simple data class for a product."""
+    def __init__(self, name, price, quantity):
+        self.name = name
+        self.price = float(price)
+        self.quantity = int(quantity)
+
+    def __repr__(self):
+        return f"Product(name='{self.name}', price={self.price:.2f}, quantity={self.quantity})"
+
+class Supplier:
+    """A simple data class for a supplier."""
+    def __init__(self, name, contact, category):
+        self.name = name
+        self.contact = contact
+        self.category = category
+
+    def __repr__(self):
+        return f"Supplier(name='{self.name}', contact='{self.contact}', category='{self.category}')"
+
+# ==============================================================================
+# DESIGN PATTERN: Builder
+# Provides a clean, step-by-step API for creating complex objects.
+# ==============================================================================
+class ProductBuilder:
+    """Implements the Builder pattern for creating Product objects."""
+    def __init__(self):
+        self._name = None
+        self._price = 0.0
+        self._quantity = 0
+
+    def with_name(self, name):
+        self._name = name
+        return self
+
+    def with_price(self, price):
+        self._price = float(price)
+        return self
+
+    def with_quantity(self, quantity):
+        self._quantity = int(quantity)
+        return self
+
+    def build(self):
+        """Constructs and returns the final Product object."""
+        if not self._name:
+            raise ValueError("Product name must be set before building.")
+        return Product(self._name, self._price, self._quantity)
+
+# ==============================================================================
+# DESIGN PATTERN: Inheritance (Abstract Base Class)
+# Defines a common interface for all CSV-based manager classes.
+# ==============================================================================
+class CSVManager(ABC):
+    """Abstract base class for managing data stored in a CSV file."""
     def __init__(self, file_path):
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Error: The data file '{file_path}' was not found.")
         self.file_path = file_path
-        self.products = self._load()
+        self.items = self._load()
 
     def _load(self):
-        products = []
-        if os.path.exists(self.file_path):
-            with open(self.file_path, mode='r', newline='', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
-                for row in reader:
-                    products.append({
-                        'name': row['Name'],
-                        'price': float(row['Price']),
-                        'quantity': int(row['Quantity'])
-                    })
-        return products
+        items = []
+        with open(self.file_path, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                items.append(self._row_to_object(row))
+        return items
 
     def _save(self):
         with open(self.file_path, mode='w', newline='', encoding='utf-8') as file:
-            fieldnames = ['Name', 'Price', 'Quantity']
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            header = self._get_header()
+            writer = csv.DictWriter(file, fieldnames=header)
             writer.writeheader()
-            for product in self.products:
-                writer.writerow({
-                    'Name': product['name'],
-                    'Price': product['price'],
-                    'Quantity': product['quantity']
-                })
-        print(f"Product data saved to {self.file_path}")
+            for item in self.items:
+                writer.writerow(self._object_to_dict(item))
+        print(f"Data successfully saved to {self.file_path}")
 
-    def get_all_products(self):
-        return self.products
+    @abstractmethod
+    def _row_to_object(self, row):
+        pass
 
-    def search_product(self, product_name):
-        for product in self.products:
-            if product['name'].lower() == product_name.lower():
+    @abstractmethod
+    def _object_to_dict(self, obj):
+        pass
+
+    @abstractmethod
+    def _get_header(self):
+        pass
+
+# ==============================================================================
+# Concrete Manager Classes (Inherit from CSVManager)
+# ==============================================================================
+class ProductManager(CSVManager):
+    """Manages all product-related operations."""
+    def _row_to_object(self, row):
+        return Product(name=row['Name'], price=row['Price'], quantity=row['Quantity'])
+
+    def _object_to_dict(self, product):
+        return {'Name': product.name, 'Price': product.price, 'Quantity': product.quantity}
+
+    def _get_header(self):
+        return ['Name', 'Price', 'Quantity']
+
+    def search_item(self, name):
+        for product in self.items:
+            if product.name.lower() == name.lower():
                 return product
         return None
 
-    def add_product(self, product):
-        if self.search_product(product['name']):
-            print(f"Error: Product '{product['name']}' already exists.")
+    def add_item(self, product):
+        if self.search_item(product.name):
+            print(f"Error: Product '{product.name}' already exists.")
             return
-        self.products.append(product)
+        self.items.append(product)
         self._save()
-        print(f"Product '{product['name']}' added successfully.")
 
-    def update_product(self, product_name, updated_product):
-        for i, product in enumerate(self.products):
-            if product['name'].lower() == product_name.lower():
-                self.products[i] = updated_product
-                self._save()
-                return True
-        return False
-
-    def delete_product(self, product_name):
-        product_to_delete = self.search_product(product_name)
-        if product_to_delete:
-            self.products.remove(product_to_delete)
+    def update_item(self, name, updated_product_data):
+        product = self.search_item(name)
+        if product:
+            product.name = updated_product_data.name
+            product.price = updated_product_data.price
+            product.quantity = updated_product_data.quantity
             self._save()
-            return True
-        return False
+            print(f"Product '{name}' updated successfully.")
+        else:
+            print(f"Error: Product '{name}' not found.")
 
-class SupplierManager:
-    """Handles all operations related to suppliers in a CSV file."""
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.suppliers = self._load()
+    def delete_item(self, name):
+        product = self.search_item(name)
+        if product:
+            self.items.remove(product)
+            self._save()
+            print(f"Product '{name}' deleted successfully.")
+        else:
+            print(f"Error: Product '{name}' not found.")
 
-    def _load(self):
-        suppliers = []
-        if os.path.exists(self.file_path):
-            with open(self.file_path, mode='r', newline='', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
-                for row in reader:
-                    suppliers.append({
-                        'name': row['Name'],
-                        'contact': row['ContactInfo'],
-                        'category': row['ProductCategory']
-                    })
-        return suppliers
+class SupplierManager(CSVManager):
+    """Manages all supplier-related operations."""
+    def _row_to_object(self, row):
+        # This fixes the KeyError by using the correct header from your file
+        return Supplier(name=row['Name'], contact=row['Supplier_Contact_Information'], category=row['Supplier_Product_Category'])
 
-    def _save(self):
-        with open(self.file_path, mode='w', newline='', encoding='utf-8') as file:
-            fieldnames = ['Name', 'ContactInfo', 'ProductCategory']
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
-            writer.writeheader()
-            for supplier in self.suppliers:
-                writer.writerow({
-                    'Name': supplier['name'],
-                    'ContactInfo': supplier['contact'],
-                    'ProductCategory': supplier['category']
-                })
-        print(f"Supplier data saved to {self.file_path}")
+    def _object_to_dict(self, supplier):
+        return {'Name': supplier.name, 'Supplier_Contact_Information': supplier.contact, 'Supplier_Product_Category': supplier.category}
 
-    def get_all_suppliers(self):
-        return self.suppliers
+    def _get_header(self):
+        return ['Name', 'Supplier_Contact_Information', 'Supplier_Product_Category']
 
-    def search_supplier(self, supplier_name):
-        for supplier in self.suppliers:
-            if supplier['name'].lower() == supplier_name.lower():
+    def search_item(self, name):
+        for supplier in self.items:
+            if supplier.name.lower() == name.lower():
                 return supplier
         return None
 
-    def add_supplier(self, supplier):
-        if self.search_supplier(supplier['name']):
-            print(f"Error: Supplier '{supplier['name']}' already exists.")
-            return
-        self.suppliers.append(supplier)
-        self._save()
-        print(f"Supplier '{supplier['name']}' added successfully.")
+# ==============================================================================
+# DESIGN PATTERN: Factory
+# Centralizes the creation of manager objects.
+# ==============================================================================
+class ManagerFactory:
+    """A factory for creating manager instances."""
+    @staticmethod
+    def create_manager(manager_type):
+        config = Config()
+        if manager_type == 'product':
+            return ProductManager(config.get_stock_file_path())
+        elif manager_type == 'supplier':
+            return SupplierManager(config.get_supplier_file_path())
+        raise ValueError(f"Unknown manager type: {manager_type}")
 
-    def update_supplier(self, supplier_name, updated_supplier):
-        for i, supplier in enumerate(self.suppliers):
-            if supplier['name'].lower() == supplier_name.lower():
-                self.suppliers[i] = updated_supplier
-                self._save()
-                return True
-        return False
+# ==============================================================================
+# DESIGN PATTERN: Enum
+# Provides readable, constant names for menu choices.
+# ==============================================================================
+class MenuChoice(Enum):
+    PRODUCT_MANAGEMENT = '1'
+    SUPPLIER_MANAGEMENT = '2'
+    STOCK_MANAGEMENT = '3'
+    EXIT = '4'
 
-    def delete_supplier(self, supplier_name):
-        supplier_to_delete = self.search_supplier(supplier_name)
-        if supplier_to_delete:
-            self.suppliers.remove(supplier_to_delete)
-            self._save()
-            return True
-        return False
+# ==============================================================================
+# Main Application Class
+# ==============================================================================
+class CafeManagementApp:
+    def __init__(self):
+        self.config = Config()
+        self.product_manager = ManagerFactory.create_manager('product')
+        self.supplier_manager = ManagerFactory.create_manager('supplier')
+        self.is_running = False
 
-class PurchaseOrder:
-    """A simple class to represent a purchase order."""
-    def __init__(self, product_name, quantity):
-        self.product_name = product_name
-        self.quantity = quantity
-        self.date = datetime.date.today().isoformat()
-
-    def generate_order(self):
-        # In a real system, this would save to a PO file or database.
-        # For this example, we just print a confirmation.
-        print(f"--- Purchase Order Generated ---")
-        print(f"Date: {self.date}")
-        print(f"Product: {self.product_name}")
-        print(f"Quantity: {self.quantity}")
-        print("--------------------------------")
-
-
-# --- Main Application Logic ---
-
-def login_system():
-    """Handles the user login process."""
-    admin_credentials = {"admin": "test"}
-    print("********** Cafe Stock Management System **********")
-    print("********** Login System **********")
-    while True:
-        username = input("Please enter your username: ").lower()
-        if username in admin_credentials:
-            password = input(f"Please enter the password for the '{username}' account: ")
-            if password == admin_credentials[username]:
-                time = Utils()
-                print(f"\nLogin successful\nTime: {time.format_date()}")
-                return True
-            else:
-                print("Incorrect password. Please try again.")
-        else:
-            print("Username not found. Please try again.")
-
-def product_manager_system(product_manager):
-    """Menu system for managing products."""
-    while True:
-        print("\n=== Cafe Product Management ===")
-        print("1. Add new cafe product")
-        print("2. Update product details")
-        print("3. Remove product from inventory")
-        print("4. Search product information")
-        print("5. View all products")
-        print("6. Return to main menu")
-        choice = input("\nEnter your choice: ")
-
-        if choice == '1':
-            name = input("Enter product name: ")
-            price = float(input("Enter product price: "))
-            quantity = int(input("Enter initial stock quantity: "))
-            product_manager.add_product({'name': name, 'price': price, 'quantity': quantity})
-        elif choice == '2':
-            name = input("Enter product name to update: ")
-            product = product_manager.search_product(name)
-            if not product:
-                print("Product not found!")
-                continue
-            new_name = input(f"Enter new name (current: {product['name']}) or leave blank: ") or product['name']
-            new_price = input(f"Enter new price (current: {product['price']}) or leave blank: ") or product['price']
-            new_quantity = input(f"Enter new quantity (current: {product['quantity']}) or leave blank: ") or product['quantity']
-            updated_product = {'name': new_name, 'price': float(new_price), 'quantity': int(new_quantity)}
-            product_manager.update_product(name, updated_product)
-        elif choice == '3':
-            name = input("Enter product name to remove: ")
-            if product_manager.delete_product(name):
-                print(f"'{name}' removed successfully.")
-            else:
-                print(f"Could not find '{name}' to remove.")
-        elif choice == '4':
-            name = input("Enter product name to search: ")
-            product = product_manager.search_product(name)
-            if product:
-                print(f"\nDetails: Name: {product['name']}, Price: £{product['price']:.2f}, Quantity: {product['quantity']}")
-            else:
-                print("Product not found.")
-        elif choice == '5':
-            for p in product_manager.get_all_products():
-                print(f"- {p['name']} | Price: £{p['price']:.2f} | Quantity: {p['quantity']}")
-        elif choice == '6':
-            break
-        else:
-            print("Invalid choice.")
-
-def supplier_manager_system(supplier_manager):
-    """Menu system for managing suppliers."""
-    while True:
-        print("\n=== Cafe Supplier Management ===")
-        print("1. Add new supplier")
-        print("2. Update supplier details")
-        print("3. Remove supplier")
-        print("4. Search for a supplier")
-        print("5. View all suppliers")
-        print("6. Return to main menu")
-        choice = input("\nEnter your choice: ")
-
-        if choice == '1':
-            name = input("Enter supplier name: ")
-            contact = input("Enter contact info: ")
-            category = input("Enter product category: ")
-            supplier_manager.add_supplier({'name': name, 'contact': contact, 'category': category})
-        elif choice == '2':
-            name = input("Enter supplier name to update: ")
-            supplier = supplier_manager.search_supplier(name)
-            if not supplier:
-                print("Supplier not found!")
-                continue
-            new_name = input(f"Enter new name (current: {supplier['name']}) or leave blank: ") or supplier['name']
-            new_contact = input(f"Enter new contact (current: {supplier['contact']}) or leave blank: ") or supplier['contact']
-            new_category = input(f"Enter new category (current: {supplier['category']}) or leave blank: ") or supplier['category']
-            updated_supplier = {'name': new_name, 'contact': new_contact, 'category': new_category}
-            supplier_manager.update_supplier(name, updated_supplier)
-        elif choice == '3':
-            name = input("Enter supplier name to remove: ")
-            if supplier_manager.delete_supplier(name):
-                print(f"'{name}' removed successfully.")
-            else:
-                print(f"Could not find '{name}' to remove.")
-        elif choice == '4':
-            name = input("Enter supplier name to search: ")
-            supplier = supplier_manager.search_supplier(name)
-            if supplier:
-                print(f"\nDetails: Name: {supplier['name']}, Contact: {supplier['contact']}, Category: {supplier['category']}")
-            else:
-                print("Supplier not found.")
-        elif choice == '5':
-            for s in supplier_manager.get_all_suppliers():
-                print(f"- {s['name']} | Category: {s['category']} | Contact: {s['contact']}")
-        elif choice == '6':
-            break
-        else:
-            print("Invalid choice.")
-
-def stock_management_system(product_manager):
-    """Menu system for daily stock operations."""
-    stock_manager = product_manager # Use the same product manager instance
-    while True:
-        print("\n=== Daily Stock Management ===")
-        print("1. Receive stock delivery")
-        print("2. Record sales")
-        print("3. View stock report")
-        print("4. Return to main menu")
-        choice = input("\nEnter your choice: ")
-
-        if choice == '1':
-            name = input("Enter product name received: ")
-            product = stock_manager.search_product(name)
-            if product:
-                quantity = int(input(f"Enter quantity of '{name}' received: "))
-                product['quantity'] += quantity
-                stock_manager._save()
-                print(f"Stock updated. New quantity for '{name}': {product['quantity']}")
-            else:
-                print("Product not found.")
-        elif choice == '2':
-            name = input("Enter product name sold: ")
-            product = stock_manager.search_product(name)
-            if product:
-                quantity = int(input(f"Enter quantity of '{name}' sold: "))
-                if product['quantity'] >= quantity:
-                    product['quantity'] -= quantity
-                    stock_manager._save()
-                    print(f"Sale recorded. New quantity for '{name}': {product['quantity']}")
+    def _login(self):
+        """Handles the user login process."""
+        print("********** Cafe Stock Management System **********")
+        credentials = self.config.get_credentials()
+        while True:
+            username = input("Please enter your username: ").lower()
+            if username in credentials:
+                password = input(f"Please enter the password for '{username}': ")
+                if password == credentials[username]:
+                    print(f"\nLogin successful at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    return True
                 else:
-                    print(f"Error: Not enough stock. Only {product['quantity']} available.")
+                    print("Incorrect password.")
             else:
-                print("Product not found.")
-        elif choice == '3':
-            print("\n--- Stock Report ---")
-            for p in stock_manager.get_all_products():
-                print(f"- {p['name']}: {p['quantity']}")
-        elif choice == '4':
-            break
-        else:
-            print("Invalid choice.")
+                print("Username not found.")
+            if input("Try again? (y/n): ").lower() != 'y':
+                return False
 
-def purchase_order_system(product_manager):
-    """Menu system for generating purchase orders."""
-    while True:
-        print("\n=== Cafe Purchase Orders ===")
-        print("1. Generate order for low stock items")
-        print("2. Create custom purchase order")
-        print("3. Return to main menu")
-        choice = input("\nEnter your choice: ")
+    def run(self):
+        """Main application loop."""
+        if not self._login():
+            print("Exiting application.")
+            return
 
-        if choice == '1':
-            threshold = int(input("Enter low stock threshold (e.g., 20): ") or 20)
-            low_stock_items = [p for p in product_manager.get_all_products() if p['quantity'] < threshold]
-            if not low_stock_items:
-                print("No items are below the stock threshold.")
-                continue
-            print("\nItems below threshold:")
-            for item in low_stock_items:
-                print(f"- {item['name']} (Current: {item['quantity']})")
-            if input("Generate orders for these items? (y/n): ").lower() == 'y':
-                for item in low_stock_items:
-                    order_qty = int(input(f"Enter order quantity for {item['name']}: "))
-                    po = PurchaseOrder(item['name'], order_qty)
-                    po.generate_order()
-        elif choice == '2':
-            name = input("Enter product name for custom order: ")
-            if product_manager.search_product(name):
-                quantity = int(input(f"Enter quantity to order for '{name}': "))
-                po = PurchaseOrder(name, quantity)
-                po.generate_order()
-            else:
-                print("Product not found.")
-        elif choice == '3':
-            break
-        else:
-            print("Invalid choice.")
+        self.is_running = True
+        while self.is_running:
+            self._display_main_menu()
+            choice = input("Enter your choice: ")
+            self._process_main_menu(choice)
 
-
-def main():
-    """Main function to run the application."""
-    # Correctly point to the data files in the same directory
-    stock_file = 'stock.csv'
-    supplier_file = 'suppliers.csv'
-
-    if not os.path.exists(stock_file) or not os.path.exists(supplier_file):
-        print(f"Error: Make sure '{stock_file}' and '{supplier_file}' exist in the same directory as the script.")
-        sys.exit(1)
-
-    if not login_system():
-        return
-
-    # Instantiate managers once
-    product_manager = ProductManager(stock_file)
-    supplier_manager = SupplierManager(supplier_file)
-
-    while True:
+    def _display_main_menu(self):
         print("\n********** Main Menu **********")
-        print("1. Product Management")
-        print("2. Supplier Management")
-        print("3. Stock Management")
-        print("4. Purchase Orders")
-        print("5. Exit System")
-        choice = input("\nEnter your choice: ")
+        print(f"{MenuChoice.PRODUCT_MANAGEMENT.value}. Product Management")
+        print(f"{MenuChoice.SUPPLIER_MANAGEMENT.value}. Supplier Management")
+        print(f"{MenuChoice.STOCK_MANAGEMENT.value}. Daily Stock Operations")
+        print(f"{MenuChoice.EXIT.value}. Exit System")
+        print("*****************************")
 
-        if choice == '1':
-            product_manager_system(product_manager)
-        elif choice == '2':
-            supplier_manager_system(supplier_manager)
-        elif choice == '3':
-            stock_management_system(product_manager) # Stock uses the product data
-        elif choice == '4':
-            purchase_order_system(product_manager)
-        elif choice == '5':
+    def _process_main_menu(self, choice):
+        if choice == MenuChoice.PRODUCT_MANAGEMENT.value:
+            self._product_menu()
+        elif choice == MenuChoice.SUPPLIER_MANAGEMENT.value:
+            print("\nSupplier management is a planned feature.") # Placeholder
+        elif choice == MenuChoice.STOCK_MANAGEMENT.value:
+            self._stock_menu()
+        elif choice == MenuChoice.EXIT.value:
+            self.is_running = False
             print("Exiting the Cafe Management System. Goodbye!")
-            break
         else:
             print("Invalid choice. Please try again.")
 
+    def _product_menu(self):
+        """Displays and handles the product management sub-menu."""
+        while True:
+            print("\n--- Product Management ---")
+            print("1. Add New Product")
+            print("2. Update Product")
+            print("3. Delete Product")
+            print("4. View All Products")
+            print("5. Back to Main Menu")
+            choice = input("Enter your choice: ")
+
+            if choice == '1':
+                try:
+                    # Using the builder for clean object creation
+                    builder = ProductBuilder()
+                    name = input("Enter product name: ")
+                    price = input("Enter product price: ")
+                    quantity = input("Enter initial quantity: ")
+                    new_product = builder.with_name(name).with_price(price).with_quantity(quantity).build()
+                    self.product_manager.add_item(new_product)
+                except (ValueError, TypeError) as e:
+                    print(f"Error creating product: {e}")
+            elif choice == '4':
+                print("\n--- All Products ---")
+                for p in self.product_manager.items:
+                    print(f"- {p.name} | Price: £{p.price:.2f} | Quantity: {p.quantity}")
+            elif choice == '5':
+                break
+            else:
+                print("Invalid choice or feature not yet implemented.")
+
+
+    def _stock_menu(self):
+        """Displays and handles the daily stock operations sub-menu."""
+        while True:
+            print("\n--- Daily Stock Operations ---")
+            print("1. Record Sales")
+            print("2. Receive Stock Delivery")
+            print("3. View Stock Report")
+            print("4. Back to Main Menu")
+            choice = input("Enter your choice: ")
+
+            if choice == '1':
+                name = input("Enter product name sold: ")
+                product = self.product_manager.search_item(name)
+                if product:
+                    try:
+                        quantity = int(input(f"Enter quantity sold (Current stock: {product.quantity}): "))
+                        if 0 < quantity <= product.quantity:
+                            product.quantity -= quantity
+                            self.product_manager._save()
+                            print(f"Sale recorded. New quantity for '{name}': {product.quantity}")
+                        else:
+                            print("Invalid quantity or not enough stock.")
+                    except ValueError:
+                        print("Invalid input. Please enter a number.")
+                else:
+                    print("Product not found.")
+            elif choice == '3':
+                self._stock_report()
+            elif choice == '4':
+                break
+            else:
+                print("Invalid choice or feature not yet implemented.")
+
+    def _stock_report(self):
+        print("\n--- Stock Report ---")
+        for p in self.product_manager.items:
+            print(f"- {p.name}: {p.quantity}")
+
+
 if __name__ == '__main__':
-    main()
+    try:
+        app = CafeManagementApp()
+        app.run()
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)
